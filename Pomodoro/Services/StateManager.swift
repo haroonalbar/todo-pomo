@@ -32,11 +32,17 @@ class StateManager: ObservableObject {
     /// Statistics manager for tracking work sessions
     private let statisticsManager: StatisticsManager
     
+    /// Todo manager for task list
+    let todoManager: TodoManager
+    
     /// Timer for idle reminders
     var idleReminderTimer: Timer?
     
     /// Set of cancellables for managing subscriptions
     private var cancellables = Set<AnyCancellable>()
+    
+    /// Current work session ID (for linking todos)
+    private(set) var currentSessionId: UUID?
     
     /// Initialize the state manager with required services
     /// - Parameters:
@@ -44,14 +50,17 @@ class StateManager: ObservableObject {
     ///   - soundService: The sound service to use
     ///   - notificationService: The notification service to use
     ///   - statisticsManager: The statistics manager to use
+    ///   - todoManager: The todo manager to use
     init(timerService: TimerService = TimerService(),
          soundService: SoundService = SoundService(),
          notificationService: NotificationService = NotificationService(),
-         statisticsManager: StatisticsManager = StatisticsManager()) {
+         statisticsManager: StatisticsManager = StatisticsManager(),
+         todoManager: TodoManager? = nil) {
         self.timerService = timerService
         self.soundService = soundService
         self.notificationService = notificationService
         self.statisticsManager = statisticsManager
+        self.todoManager = todoManager ?? TodoManager(notificationService: notificationService)
         
         // Subscribe to timer completion events
         timerService.timerCompletedPublisher
@@ -96,6 +105,7 @@ class StateManager: ObservableObject {
     /// Start a work session
     private func startWork() {
         currentState = .work
+        currentSessionId = UUID()
         timerService.start(duration: settings.workDurationSeconds)
         remainingTimePublished = settings.workDurationSeconds
         
@@ -112,6 +122,10 @@ class StateManager: ObservableObject {
     private func startRest() {
         // Complete the work session tracking
         statisticsManager.completeWorkSession()
+        
+        // Clear todo session links when work session ends
+        todoManager.clearSessionLinks()
+        currentSessionId = nil
         
         // Play work complete sound and show notification
         soundService.playSound(type: .workComplete)
@@ -216,6 +230,21 @@ class StateManager: ObservableObject {
             statisticsManager.completeWorkSession()
             statisticsManager.saveStatistics()
         }
+    }
+    
+    // MARK: - Todo Integration
+    
+    /// Link a todo to the current work session
+    /// - Parameter todoId: The todo's unique identifier
+    func linkTodoToCurrentSession(todoId: UUID) {
+        guard let sessionId = currentSessionId, currentState == .work else { return }
+        todoManager.linkToSession(todoId: todoId, sessionId: sessionId)
+    }
+    
+    /// Unlink a todo from the current session
+    /// - Parameter todoId: The todo's unique identifier
+    func unlinkTodo(todoId: UUID) {
+        todoManager.unlinkFromSession(todoId: todoId)
     }
     
     deinit {

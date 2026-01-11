@@ -130,6 +130,11 @@ struct MenuBarView: View {
             
             Divider()
             
+            // Todo List Section
+            TodoListView(stateManager: stateManager, todoManager: stateManager.todoManager)
+            
+            Divider()
+            
             // Configuration button
             Button(action: {
                 showingConfiguration = true

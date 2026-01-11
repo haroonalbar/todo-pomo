@@ -8,7 +8,12 @@ class NotificationService {
         case workComplete = "work-complete"
         case restComplete = "rest-complete"
         case idleReminder = "idle-reminder"
+        case todoDue = "todo-due"
+        case todoReminder = "todo-reminder"
     }
+    
+    /// Reminder intervals in minutes before due date
+    static let reminderIntervals: [Int] = [60, 30, 10, 5]
     
     /// Initialize the notification service and request permissions
     init() {
@@ -113,4 +118,132 @@ class NotificationService {
         let center = UNUserNotificationCenter.current()
         center.removeAllPendingNotificationRequests()
     }
-} 
+    
+    // MARK: - Todo Due Date Notifications
+    
+    /// Schedule reminder notifications for a todo at specific intervals
+    /// - Parameters:
+    ///   - todoId: The unique identifier of the todo
+    ///   - title: The todo's title
+    ///   - dueDate: When the todo is due
+    func scheduleTodoReminders(todoId: UUID, title: String, dueDate: Date) {
+        let center = UNUserNotificationCenter.current()
+        let now = Date()
+        
+        // Schedule reminders at 1 hour, 30 min, 10 min, and 5 min before
+        for minutesBefore in Self.reminderIntervals {
+            let reminderDate = dueDate.addingTimeInterval(-Double(minutesBefore * 60))
+            
+            // Only schedule if the reminder time is in the future
+            guard reminderDate > now else { continue }
+            
+            // Create notification content with time remaining
+            let content = UNMutableNotificationContent()
+            content.title = "Task Reminder"
+            content.body = "\(title)\n⏰ \(formatTimeRemaining(minutesBefore)) remaining"
+            content.sound = UNNotificationSound.default
+            
+            // Create trigger based on reminder date
+            let triggerDate = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: reminderDate
+            )
+            let trigger = UNCalendarNotificationTrigger(dateMatching: triggerDate, repeats: false)
+            
+            // Create request with unique identifier for this reminder
+            let identifier = "\(NotificationType.todoReminder.rawValue)-\(todoId.uuidString)-\(minutesBefore)"
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+            
+            // Add the request
+            center.add(request) { error in
+                if let error = error {
+                    print("Error scheduling todo reminder: \(error.localizedDescription)")
+                }
+            }
+        }
+        
+        // Also schedule a notification at the exact due time
+        if dueDate > now {
+            let content = UNMutableNotificationContent()
+            content.title = "⚠️ Task Due Now!"
+            content.body = title
+            content.sound = UNNotificationSound.default
+            
+            let triggerDate = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: dueDate
+            )
+            let trigger = UNCalendarNotificationTrigger(dateMatching: triggerDate, repeats: false)
+            
+            let identifier = "\(NotificationType.todoDue.rawValue)-\(todoId.uuidString)"
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+            
+            center.add(request) { error in
+                if let error = error {
+                    print("Error scheduling todo due notification: \(error.localizedDescription)")
+                }
+            }
+            
+            // Schedule overdue notification 1 minute after deadline
+            let overdueDate = dueDate.addingTimeInterval(60)
+            let overdueContent = UNMutableNotificationContent()
+            overdueContent.title = "🔴 OVERDUE: Task Deadline Exceeded!"
+            overdueContent.body = "\(title)\n❌ This task is now past its deadline"
+            overdueContent.sound = UNNotificationSound.default
+            overdueContent.interruptionLevel = .timeSensitive
+            
+            let overdueTriggerDate = Calendar.current.dateComponents(
+                [.year, .month, .day, .hour, .minute, .second],
+                from: overdueDate
+            )
+            let overdueTrigger = UNCalendarNotificationTrigger(dateMatching: overdueTriggerDate, repeats: false)
+            
+            let overdueIdentifier = "\(NotificationType.todoDue.rawValue)-\(todoId.uuidString)-overdue"
+            let overdueRequest = UNNotificationRequest(identifier: overdueIdentifier, content: overdueContent, trigger: overdueTrigger)
+            
+            center.add(overdueRequest) { error in
+                if let error = error {
+                    print("Error scheduling overdue notification: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+    
+    /// Format time remaining for notification body
+    private func formatTimeRemaining(_ minutes: Int) -> String {
+        if minutes >= 60 {
+            let hours = minutes / 60
+            return "\(hours) hour"
+        } else {
+            return "\(minutes) minutes"
+        }
+    }
+    
+    /// Remove all scheduled notifications for a todo
+    /// - Parameter todoId: The unique identifier of the todo
+    func removeTodoNotifications(todoId: UUID) {
+        let center = UNUserNotificationCenter.current()
+        
+        // Remove the due notification and overdue notification
+        let dueIdentifier = "\(NotificationType.todoDue.rawValue)-\(todoId.uuidString)"
+        let overdueIdentifier = "\(NotificationType.todoDue.rawValue)-\(todoId.uuidString)-overdue"
+        
+        // Remove all reminder notifications
+        var identifiersToRemove = [dueIdentifier, overdueIdentifier]
+        for minutesBefore in Self.reminderIntervals {
+            identifiersToRemove.append("\(NotificationType.todoReminder.rawValue)-\(todoId.uuidString)-\(minutesBefore)")
+        }
+        
+        center.removePendingNotificationRequests(withIdentifiers: identifiersToRemove)
+        center.removeDeliveredNotifications(withIdentifiers: identifiersToRemove)
+    }
+    
+    // Legacy methods for compatibility
+    func scheduleTodoDueNotification(todoId: UUID, title: String, dueDate: Date) {
+        scheduleTodoReminders(todoId: todoId, title: title, dueDate: dueDate)
+    }
+    
+    func removeTodoDueNotification(todoId: UUID) {
+        removeTodoNotifications(todoId: todoId)
+    }
+}
