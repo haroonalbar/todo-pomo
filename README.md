@@ -14,5 +14,5 @@ A macOS menu bar Pomodoro timer with integrated task management.
 ## Build & Run
 
 ```bash
-xcodebuild -scheme Pomodoro build && open -a Pomodoro
+xcodebuild -scheme Pomodoro build && open -a todo-pomo
 ```
